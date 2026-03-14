@@ -13,7 +13,7 @@ Corresponding author: Mahmood Ahmad (mahmood726@gmail.com)
 
 **Background:** Individual participant data (IPD) meta-analysis is the gold standard for synthesizing evidence across clinical trials, enabling patient-level subgroup analyses and more flexible modeling than aggregate data approaches. However, existing software requires proficiency in R or Stata, limiting accessibility for clinical researchers without programming expertise.
 
-**Methods:** We developed IPD Meta-Analysis Pro, a browser-based platform delivered as a single 111,112-line HTML file with 23 embedded JavaScript modules. The application implements one-stage mixed-effects models and two-stage pooling with seven heterogeneity estimators (DerSimonian-Laird, restricted maximum likelihood, Pauli-Mandel, maximum likelihood, Hedges, Hunter-Schmidt, and Sidik-Jonkman), Hartung-Knapp-Sidik-Jonkman confidence interval adjustment, survival analysis (Kaplan-Meier estimation, Cox proportional hazards, log-rank tests), network meta-analysis with SUCRA rankings, meta-regression, multiple imputation via chained equations, publication bias assessment, and a proof-carrying certification layer (TruthCert). All computations execute client-side using a seeded xoshiro128** pseudo-random number generator for full reproducibility. Numerical parity was validated against R packages metafor, meta, survival, and lme4 across 99 benchmark scenarios with 100% pass rate.
+**Methods:** We developed IPD Meta-Analysis Pro, a browser-based platform delivered as a single 111,112-line HTML file with 23 embedded JavaScript modules. The application implements one-stage mixed-effects models and two-stage pooling with seven heterogeneity estimators (DerSimonian-Laird, restricted maximum likelihood, Paule-Mandel, maximum likelihood, Hedges, Hunter-Schmidt, and Sidik-Jonkman), Hartung-Knapp-Sidik-Jonkman confidence interval adjustment, survival analysis (Kaplan-Meier estimation, Cox proportional hazards, log-rank tests), network meta-analysis with SUCRA rankings, meta-regression, multiple imputation via chained equations, publication bias assessment, and a proof-carrying certification layer (TruthCert). All computations execute client-side using a seeded xoshiro128** pseudo-random number generator for full reproducibility. Numerical parity was validated against R packages metafor, meta, survival, and lme4 across 99 benchmark scenarios with 100% pass rate.
 
 **Results:** The platform provides a complete IPD meta-analysis workflow from data import through model execution, diagnostics, GRADE assessment, PRISMA-IPD reporting, and export to PDF, Excel, CSV, and reproducible R and Stata scripts. A JSON-patch undo/redo system, federated analysis mode, and transportability analysis extend the platform beyond standard meta-analysis functionality.
 
@@ -47,7 +47,7 @@ The two-stage approach first computes study-level effect estimates and variances
 
 1. **DerSimonian-Laird (DL):** method-of-moments estimator [14]
 2. **Restricted maximum likelihood (REML):** iterative Fisher scoring with REML criterion [5]
-3. **Pauli-Mandel (PM):** iterative estimator with improved small-sample properties [15]
+3. **Paule-Mandel (PM):** iterative estimator with improved small-sample properties [15]
 4. **Maximum likelihood (ML):** profile likelihood optimization [5]
 5. **Hedges (HE):** unweighted estimator based on study-level residuals [16]
 6. **Hunter-Schmidt (HS):** variance-component estimator from psychometric tradition [17]
@@ -223,7 +223,10 @@ IPD Meta-Analysis Pro is a freely available, browser-based platform for individu
 
 - **Source code:** https://github.com/mahmood726-cyber/ipd-meta-analysis-pro
 - **Archived source code at time of publication:** [ZENODO_DOI_PLACEHOLDER]
+- **Live demo:** https://mahmood726-cyber.github.io/ipd-meta-analysis-pro/ipd-meta-pro.html
 - **License:** MIT
+
+An `renv.lock` file is included to pin R package versions (metafor 4.8-0, lme4 1.1-35, survival 3.5-7) used in the parity gate.
 
 ## Data availability
 
@@ -264,7 +267,7 @@ The authors acknowledge the developers of the R packages metafor, meta, survival
 9. Review Manager (RevMan) [Computer program]. Version 5.4. The Cochrane Collaboration; 2020.
 10. Borenstein M, Hedges LV, Higgins JPT, Rothstein HR. Comprehensive Meta-Analysis (Version 4). Biostat, Englewood, NJ; 2022.
 11. Wallace BC, Dahabreh IJ, Trikalinos TA, Lau J, Trow P, Schmid CH. Closing the gap between methodologists and end-users: R as a computational back-end. J Stat Softw. 2012;49(5):1-15. https://doi.org/10.18637/jss.v049.i05
-12. Ahmad M. TruthCert: proof-carrying numbers for reproducible evidence synthesis. Preprint. 2026.
+12. Ahmad M. TruthCert: proof-carrying numbers for reproducible evidence synthesis. Under review. 2026.
 13. Blackman S, Vigna S. Scrambled linear pseudorandom number generators. ACM Trans Math Softw. 2021;47(4):1-32. https://doi.org/10.1145/3460772
 14. DerSimonian R, Laird N. Meta-analysis in clinical trials. Control Clin Trials. 1986;7(3):177-188. https://doi.org/10.1016/0197-2456(86)90046-2
 15. Paule RC, Mandel J. Consensus values and weighting factors. J Res Natl Bur Stand. 1982;87(5):377-385. https://doi.org/10.6028/jres.087.022
