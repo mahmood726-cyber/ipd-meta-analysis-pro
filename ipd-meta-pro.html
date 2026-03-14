@@ -111095,6 +111095,369 @@ console.log('[IPD-MA Pro] TruthCert provenance layer loaded v' + TruthCert.versi
 
 <script src="dev/modules/export_schema_module.js"></script>
 
+<!-- ================================================================
+     WebR In-Browser Validation (metafor::rma)
+     Lazy-loads WebR v0.4.4, runs R in WASM, compares 8 metrics
+     ================================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // ---- tiny HTML escaper ----
+  function esc(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ---- WebR card HTML (injected into #panel-results) ----
+  var WEBR_CARD_ID = 'webr-validation-card';
+
+  function buildWebrCardHTML() {
+    return '<div id="' + WEBR_CARD_ID + '" style="margin-top:1.5rem;border:2px solid #7c3aed;border-radius:12px;overflow:hidden;">'
+      + '<div style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:1rem 1.25rem;display:flex;align-items:center;gap:0.75rem;">'
+      +   '<span style="font-size:1.5rem;">&#x1F9EA;</span>'
+      +   '<div>'
+      +     '<h4 style="margin:0;color:#fff;font-size:1rem;">WebR: Verify with R metafor in Your Browser</h4>'
+      +     '<p style="margin:0;color:#e0d4fc;font-size:0.8rem;">Runs R (WASM) client-side — no server needed</p>'
+      +   '</div>'
+      + '</div>'
+      + '<div style="padding:1.25rem;">'
+      +   '<button id="webrRunBtn" onclick="runWebRValidation()" '
+      +     'style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;'
+      +     'padding:0.6rem 1.5rem;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;">'
+      +     'Run R Validation'
+      +   '</button>'
+      +   '<span id="webrProgressText" style="margin-left:1rem;color:var(--text-secondary,#888);font-size:0.85rem;"></span>'
+      +   '<span id="webrBadge" style="display:none;margin-left:0.75rem;padding:0.2rem 0.7rem;border-radius:12px;font-size:0.75rem;font-weight:700;"></span>'
+      +   '<div id="webrResults" style="margin-top:1rem;"></div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // ---- MutationObserver: auto-inject card when results panel becomes visible ----
+  function injectWebrCard() {
+    var panel = document.getElementById('panel-results');
+    if (!panel) return false;
+    if (document.getElementById(WEBR_CARD_ID)) return true; // already injected
+    var resultsContent = document.getElementById('resultsContent');
+    var target = resultsContent || panel;
+    target.insertAdjacentHTML('beforeend', buildWebrCardHTML());
+    return true;
+  }
+
+  // Try immediately, then observe
+  if (!injectWebrCard()) {
+    var obs = new MutationObserver(function(mutations) {
+      var panel = document.getElementById('panel-results');
+      if (panel) {
+        injectWebrCard();
+        // Keep observing — the card may get removed on re-analysis
+      }
+      // Re-inject if card was removed (e.g., results panel was rebuilt)
+      if (panel && !document.getElementById(WEBR_CARD_ID)) {
+        injectWebrCard();
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // Also re-inject when results panel content changes
+  var resultsObs = new MutationObserver(function() {
+    if (document.getElementById('panel-results') && !document.getElementById(WEBR_CARD_ID)) {
+      injectWebrCard();
+    }
+  });
+  var tryObserveResults = function() {
+    var rc = document.getElementById('resultsContent') || document.getElementById('panel-results');
+    if (rc) {
+      resultsObs.observe(rc, { childList: true });
+    } else {
+      setTimeout(tryObserveResults, 1000);
+    }
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryObserveResults);
+  } else {
+    tryObserveResults();
+  }
+
+  // ---- Extract yi/vi from APP state ----
+  function extractStudyData() {
+    var res = (typeof APP !== 'undefined') ? (APP.results || APP.analysisResults) : null;
+    if (!res) return null;
+
+    var studies = res.studies;
+    if (!Array.isArray(studies) || studies.length < 2) return null;
+
+    var yi = [];
+    var vi = [];
+    var labels = [];
+
+    for (var i = 0; i < studies.length; i++) {
+      var s = studies[i];
+      var eff = (s.yi != null) ? s.yi : (s.effect != null ? s.effect : null);
+      var v = (s.vi != null) ? s.vi : (s.variance != null ? s.variance : null);
+      if (eff == null || v == null || !isFinite(eff) || !isFinite(v) || v <= 0) continue;
+      yi.push(eff);
+      vi.push(v);
+      labels.push(s.study || s.label || s.name || ('Study ' + (i + 1)));
+    }
+
+    if (yi.length < 2) return null;
+
+    var pooled = res.pooled || {};
+    var appEffect = (pooled.effect != null) ? pooled.effect : (pooled.pooled != null ? pooled.pooled : null);
+    var appSE = pooled.se;
+    var appTau2 = pooled.tau2;
+    var appI2 = pooled.I2;
+    var appQ = pooled.Q;
+    var appLower = pooled.lower;
+    var appUpper = pooled.upper;
+    var appP = pooled.p ?? pooled.pValue ?? pooled.pHKSJ ?? null;
+    var method = (typeof APP !== 'undefined' && APP.config) ? (APP.config.reMethod || 'REML') : 'REML';
+
+    return {
+      yi: yi, vi: vi, labels: labels, k: yi.length,
+      app: {
+        effect: appEffect, se: appSE, tau2: appTau2,
+        I2: appI2, Q: appQ, lower: appLower, upper: appUpper,
+        p: appP, method: method
+      }
+    };
+  }
+
+  // ---- WebR loader & validation ----
+  var webrInstance = null;
+
+  window.runWebRValidation = async function() {
+    var btn = document.getElementById('webrRunBtn');
+    var prog = document.getElementById('webrProgressText');
+    var badge = document.getElementById('webrBadge');
+    var resDiv = document.getElementById('webrResults');
+
+    if (!btn || !prog || !resDiv) {
+      // Card not injected yet — try to inject
+      injectWebrCard();
+      btn = document.getElementById('webrRunBtn');
+      prog = document.getElementById('webrProgressText');
+      badge = document.getElementById('webrBadge');
+      resDiv = document.getElementById('webrResults');
+      if (!btn) { alert('WebR card not found. Please run an analysis first.'); return; }
+    }
+
+    // Extract data
+    var data = extractStudyData();
+    if (!data) {
+      resDiv.innerHTML = '<p style="color:#ef4444;font-weight:600;">No analysis results found. Please run an analysis first.</p>';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    badge.style.display = 'none';
+    resDiv.innerHTML = '';
+
+    try {
+      // Lazy-load WebR
+      if (!webrInstance) {
+        prog.textContent = 'Loading WebR runtime (~20 MB, first time only)...';
+        if (!window.WebR) {
+          await new Promise(function(resolve, reject) {
+            var sc = document.createElement('script');
+            sc.src = 'https://webr.r-wasm.org/v0.4.4/webr.mjs';
+            sc.type = 'module';
+            // For module scripts, use a dynamic import instead
+            sc.remove();
+            // Use dynamic import for ES module
+            import('https://webr.r-wasm.org/v0.4.4/webr.mjs').then(function(mod) {
+              window.WebR = mod.WebR;
+              resolve();
+            }).catch(reject);
+          });
+        }
+        prog.textContent = 'Initializing WebR engine...';
+        webrInstance = new window.WebR();
+        await webrInstance.init();
+      }
+
+      // Try installing metafor
+      var useMetafor = false;
+      prog.textContent = 'Installing metafor package...';
+      try {
+        await webrInstance.installPackages(['metafor'], { quiet: true });
+        await webrInstance.evalRVoid('library(metafor)');
+        useMetafor = true;
+        prog.textContent = 'Running metafor::rma()...';
+      } catch (e) {
+        prog.textContent = 'metafor unavailable, using base R DerSimonian-Laird...';
+        useMetafor = false;
+      }
+
+      // Build R code
+      var yiStr = 'c(' + data.yi.join(',') + ')';
+      var viStr = 'c(' + data.vi.join(',') + ')';
+      var rMethod = data.app.method || 'REML';
+
+      var rCode;
+      if (useMetafor) {
+        rCode = [
+          'yi <- ' + yiStr,
+          'vi <- ' + viStr,
+          'fit <- rma(yi=yi, vi=vi, method="' + rMethod + '")',
+          'ci_lb <- fit$ci.lb',
+          'ci_ub <- fit$ci.ub',
+          'cat(paste(',
+          '  fit$beta[1],',   // effect
+          '  sqrt(fit$vb[1]),', // se
+          '  fit$tau2,',
+          '  fit$I2,',
+          '  fit$QE,',
+          '  ci_lb,',
+          '  ci_ub,',
+          '  fit$pval,',
+          '  sep="|"',
+          '))'
+        ].join('\n');
+      } else {
+        // Base R DerSimonian-Laird fallback
+        rCode = [
+          'yi <- ' + yiStr,
+          'vi <- ' + viStr,
+          'k <- length(yi)',
+          'wi <- 1/vi',
+          'sumW <- sum(wi)',
+          'theta_fe <- sum(wi*yi)/sumW',
+          'Q <- sum(wi*(yi - theta_fe)^2)',
+          'df <- k - 1',
+          'C_val <- sumW - sum(wi^2)/sumW',
+          'tau2 <- max(0, (Q - df)/C_val)',
+          'wi_re <- 1/(vi + tau2)',
+          'sumW_re <- sum(wi_re)',
+          'theta_re <- sum(wi_re*yi)/sumW_re',
+          'se_re <- sqrt(1/sumW_re)',
+          'I2 <- max(0, (Q - df)/Q * 100)',
+          'ci_lb <- theta_re - qnorm(0.975)*se_re',
+          'ci_ub <- theta_re + qnorm(0.975)*se_re',
+          'z <- theta_re/se_re',
+          'pval <- 2*(1 - pnorm(abs(z)))',
+          'cat(paste(theta_re, se_re, tau2, I2, Q, ci_lb, ci_ub, pval, sep="|"))'
+        ].join('\n');
+      }
+
+      var result = await webrInstance.evalRString(rCode);
+      var parts = result.split('|').map(Number);
+
+      if (parts.length < 8 || parts.some(function(x) { return isNaN(x); })) {
+        throw new Error('Unexpected R output: ' + esc(result));
+      }
+
+      var rResult = {
+        effect: parts[0], se: parts[1], tau2: parts[2], I2: parts[3],
+        Q: parts[4], lower: parts[5], upper: parts[6], p: parts[7]
+      };
+
+      prog.textContent = '';
+
+      // Build comparison table
+      var metrics = [
+        { label: 'Pooled Effect', appVal: data.app.effect, rVal: rResult.effect, digits: 6 },
+        { label: 'Std. Error', appVal: data.app.se, rVal: rResult.se, digits: 6 },
+        { label: 'CI Lower', appVal: data.app.lower, rVal: rResult.lower, digits: 6 },
+        { label: 'CI Upper', appVal: data.app.upper, rVal: rResult.upper, digits: 6 },
+        { label: '\u03C4\u00B2 (tau2)', appVal: data.app.tau2, rVal: rResult.tau2, digits: 6 },
+        { label: 'I\u00B2 (%)', appVal: data.app.I2, rVal: rResult.I2, digits: 2 },
+        { label: 'Q statistic', appVal: data.app.Q, rVal: rResult.Q, digits: 4 },
+        { label: 'p-value', appVal: data.app.p, rVal: rResult.p, digits: 6 }
+      ];
+
+      var allMatch = true;
+      var matchCount = 0;
+      var totalComparable = 0;
+
+      var tableRows = metrics.map(function(m) {
+        var appStr = (m.appVal != null && isFinite(m.appVal)) ? Number(m.appVal).toFixed(m.digits) : 'N/A';
+        var rStr = isFinite(m.rVal) ? m.rVal.toFixed(m.digits) : 'N/A';
+
+        var diff = '';
+        var status = '';
+        if (appStr !== 'N/A' && rStr !== 'N/A') {
+          totalComparable++;
+          var absDiff = Math.abs(m.appVal - m.rVal);
+          var relDiff = (Math.abs(m.rVal) > 1e-10) ? (absDiff / Math.abs(m.rVal)) : absDiff;
+          diff = absDiff.toExponential(2);
+          if (relDiff < 0.001 || absDiff < 1e-8) {
+            status = '<span style="color:#10b981;font-weight:700;">\u2714</span>';
+            matchCount++;
+          } else if (relDiff < 0.01) {
+            status = '<span style="color:#f59e0b;font-weight:700;">\u2248</span>';
+            matchCount += 0.5;
+          } else {
+            status = '<span style="color:#ef4444;font-weight:700;">\u2716</span>';
+            allMatch = false;
+          }
+        } else if (appStr === 'N/A') {
+          status = '<span style="color:#888;">--</span>';
+          diff = '--';
+        }
+
+        return '<tr>'
+          + '<td style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--border-color,#333);font-weight:500;">' + esc(m.label) + '</td>'
+          + '<td style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--border-color,#333);text-align:right;font-family:monospace;">' + esc(appStr) + '</td>'
+          + '<td style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--border-color,#333);text-align:right;font-family:monospace;">' + esc(rStr) + '</td>'
+          + '<td style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--border-color,#333);text-align:right;font-family:monospace;">' + esc(diff) + '</td>'
+          + '<td style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--border-color,#333);text-align:center;">' + status + '</td>'
+          + '</tr>';
+      }).join('');
+
+      var verdictPct = totalComparable > 0 ? Math.round((matchCount / totalComparable) * 100) : 0;
+      var verdictColor = verdictPct >= 90 ? '#10b981' : (verdictPct >= 70 ? '#f59e0b' : '#ef4444');
+      var verdictText = verdictPct >= 90 ? 'PASS' : (verdictPct >= 70 ? 'CLOSE' : 'MISMATCH');
+
+      badge.style.display = 'inline-block';
+      badge.style.background = verdictColor;
+      badge.style.color = '#fff';
+      badge.textContent = verdictText + ' (' + verdictPct + '%)';
+
+      var engine = useMetafor ? 'metafor::rma(method="' + esc(rMethod) + '")' : 'Base R DerSimonian-Laird';
+
+      resDiv.innerHTML = '<p style="margin-bottom:0.75rem;font-size:0.85rem;color:var(--text-secondary,#aaa);">'
+        + 'R engine: <strong>' + engine + '</strong> &bull; k = ' + data.k + ' studies'
+        + '</p>'
+        + '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">'
+        + '<thead><tr style="background:var(--bg-tertiary,#1a1a2e);">'
+        + '<th style="padding:0.5rem 0.75rem;text-align:left;">Metric</th>'
+        + '<th style="padding:0.5rem 0.75rem;text-align:right;">App</th>'
+        + '<th style="padding:0.5rem 0.75rem;text-align:right;">R</th>'
+        + '<th style="padding:0.5rem 0.75rem;text-align:right;">|Diff|</th>'
+        + '<th style="padding:0.5rem 0.75rem;text-align:center;">Match</th>'
+        + '</tr></thead>'
+        + '<tbody>' + tableRows + '</tbody>'
+        + '</table>'
+        + '<p style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary,#888);">'
+        + '\u2714 = relative diff &lt; 0.1% &nbsp; \u2248 = &lt; 1% &nbsp; \u2716 = &ge; 1%'
+        + '</p>';
+
+    } catch (err) {
+      prog.textContent = '';
+      resDiv.innerHTML = '<p style="color:#ef4444;"><strong>WebR Error:</strong> ' + esc(err.message || String(err)) + '</p>'
+        + '<p style="font-size:0.8rem;color:var(--text-secondary,#888);margin-top:0.5rem;">'
+        + 'This may happen if WebR cannot load (offline, browser restrictions, etc.). '
+        + 'Try refreshing or using Chrome/Edge.'
+        + '</p>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run R Validation';
+    }
+  };
+
+  console.log('[IPD-MA Pro] WebR in-browser validation module loaded');
+})();
+</script>
 
 </body>
 
