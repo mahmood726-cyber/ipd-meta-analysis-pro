@@ -27,7 +27,7 @@ No installation required.
 R parity gate: metafor v4.8-0, meta, survival, lme4
 
 ## Citation
-> Ahmad M, et al. IPD Meta-Analysis Pro: a browser-based platform for individual participant data meta-analysis. *F1000Research*. 2026. [DOI pending]
+> Ahmad M, et al. IPD Meta-Analysis Pro: a browser-based platform for individual participant data meta-analysis. 2026.
 
 ## License
 MIT
